@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>YawaChatHub — OBS widget</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Unbounded:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+      body {
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 6px;
+        font-family: var(--font, "Onest", "Segoe UI", system-ui, sans-serif);
+      }
+      body.dir-down { justify-content: flex-start; }
+      #stack { display: flex; flex-direction: column; gap: var(--gap, 6px); }
+      body.dir-down #stack { flex-direction: column; }
+
+      .msg {
+        position: relative;
+        padding: 9px 12px;
+        border-radius: var(--r, 12px);
+        background: var(--bg, rgba(10, 11, 18, 0.7));
+        background-image: var(--bg-image, none);
+        background-size: cover;
+        background-position: center;
+        border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+        box-shadow: var(--shadow, none);
+        color: var(--text, #f2f3f8);
+        font-size: var(--fs, 16px);
+        font-weight: var(--fw, 500);
+        letter-spacing: var(--ls, 0);
+        text-shadow: var(--tsh, none);
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+        word-break: normal;
+        white-space: normal;
+        backdrop-filter: blur(var(--blur, 0px));
+      }
+      .msg .row { display: flex; align-items: flex-start; gap: 8px; }
+      .msg .body { min-width: 0; flex: 1; }
+      .msg .who {
+        font-weight: var(--nfw, 700);
+        color: var(--name, #a78bfa);
+        text-shadow: var(--nsh, none);
+        margin-right: 6px;
+      }
+      .msg.upper .who { text-transform: uppercase; }
+      .msg .time {
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 0.72em;
+        opacity: 0.6;
+        margin-right: 6px;
+      }
+      .msg .plat {
+        display: inline-grid;
+        place-items: center;
+        width: 1.15em;
+        height: 1.15em;
+        flex: 0 0 auto;
+        margin-top: 0.15em;
+        color: var(--plat-color, #a78bfa);
+        line-height: 1;
+      }
+      .msg .plat svg { display: block; width: 100%; height: 100%; overflow: visible; }
+      .plat.circle { border-radius: 50%; }
+      .plat.rounded { border-radius: 5px; }
+      .plat.square { border-radius: 2px; }
+      .plat.glow { box-shadow: 0 0 10px currentColor; }
+      .msg .emote { height: 1.4em; vertical-align: -0.3em; margin: 0 1px; }
+
+      .msg.out { opacity: 0; transform: translateY(-6px); transition: all 0.35s ease; }
+
+      /* ---------- анимации появления ---------- */
+      .fx-fade { animation: fx-fade var(--dur, .32s) ease-out both; }
+      .fx-slide-up { animation: fx-slide-up var(--dur, .32s) cubic-bezier(.22,1,.36,1) both; }
+      .fx-slide-left { animation: fx-slide-left var(--dur, .32s) cubic-bezier(.22,1,.36,1) both; }
+      .fx-scale { animation: fx-scale var(--dur, .32s) cubic-bezier(.22,1,.36,1) both; }
+      .fx-blur { animation: fx-blur var(--dur, .32s) ease-out both; }
+      .fx-bounce { animation: fx-bounce calc(var(--dur, .32s) * 1.5) cubic-bezier(.28,1.4,.5,1) both; }
+      .fx-typewriter { animation: fx-fade var(--dur, .32s) ease-out both; }
+
+      @keyframes fx-fade { from { opacity: 0 } to { opacity: 1 } }
+      @keyframes fx-slide-up { from { opacity: 0; transform: translateY(18px) } to { opacity: 1; transform: none } }
+      @keyframes fx-slide-left { from { opacity: 0; transform: translateX(38px) } to { opacity: 1; transform: none } }
+      @keyframes fx-scale { from { opacity: 0; transform: scale(.86) } to { opacity: 1; transform: none } }
+      @keyframes fx-blur { from { opacity: 0; filter: blur(9px) } to { opacity: 1; filter: blur(0) } }
+      @keyframes fx-bounce {
+        0% { opacity: 0; transform: translateY(26px) scale(.95) }
+        60% { opacity: 1; transform: translateY(-5px) scale(1.02) }
+        100% { opacity: 1; transform: none }
+      }
+
+      #hint {
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 11px;
+        opacity: 0.6;
+        color: #9aa1b5;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stack"></div>
+    <div id="hint">ожидание подключения…</div>
+
+    <script>
+      const q = new URLSearchParams(location.search);
+      const token = q.get("token") || "";
+      const port = q.get("port") || location.port || "47823";
+
+      const stack = document.getElementById("stack");
+      const hint = document.getElementById("hint");
+      const root = document.documentElement;
+
+      const PLAT = {
+        twitch: { c: "#a970ff" },
+        youtube: { c: "#ff4e45" },
+        vk: { c: "#4c8dff" },
+        kick: { c: "#53fc18" },
+        tiktok: { c: "#ff3b5c" },
+      };
+
+      // Иконки площадок в виджете — SVG paths, а не текстовые сокращения.
+      // Официальные векторные логотипы (Simple Icons, 24×24)
+      const PLATFORM_SVG = {
+        twitch: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.571Zm4.715 0H18v5.143h-1.714ZM6 0 1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0Zm14.571 11.143-3.428 3.428h-3.429l-3 3v-3H9.857V1.714H20.57Z"/></svg>',
+        youtube: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814ZM9.545 15.568V8.432L15.818 12Z"/></svg>',
+        vk: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.162 18.994c.609 0 .858-.406.847-.915-.038-1.917.714-2.949 2.059-1.604 1.488 1.488 1.796 2.519 3.603 2.519h3.2c.935 0 1.363-.292 1.363-.743 0-1.946-3.179-5.204-4.866-6.853-.212-.21-.225-.398-.025-.632l3.875-5.152c.497-.667.219-1.183-.684-1.183h-3.048c-.758 0-1.086.392-1.366.762l-2.62 3.596c-.318.43-.62.292-.62-.087V.845C14.492.355 14.353 0 13.435 0L10.11.035C9.55.035 9.244.318 9.244.677c0 .938 1.38 1.153 1.518 3.789v5.732c0 .63-.114.745-.45.745-.974 0-3.296-3.534-4.678-7.417C5.364 1.79 5.12.545 4.279.545H1.046C.296.545 0 .962 0 1.4c0 .866 1.212 5.354 5.634 11.25 2.945 3.966 7.094 6.344 10.528 6.344Z"/></svg>',
+        kick: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1.333 0h8v5.333H12V2.667h2.667v2.666H17.333V0h5.334v10.667H20v2.666h-2.667v2.667H20v2.667h2.667V32h-5.334v-5.333h-2.666V24H12v2.667H9.333V32H1.333Zm5.334 5.333v8h2.666v2.667h2.667v2.667h2.667v-2.667h2.666v-2.667h2.667v-8h-2.667v2.667h-2.666V5.333h-2.667v2.667h-2.666V5.333Z"/></svg>',
+        tiktok: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07Z"/></svg>',
+      };
+
+      let cfg = {
+        fontSize: 16,
+        dir: "up",
+        duration: 8,
+        maxMessages: 8,
+        showPlatform: true,
+        showTime: true,
+        effect: "slide-up",
+        effectDuration: 0.32,
+      };
+      let look = {
+        id: "clean",
+        background: "rgba(10,11,18,0.7)",
+        border: "rgba(255,255,255,0.1)",
+        shadow: "0 2px 14px rgba(0,0,0,0.35)",
+        text: "#f2f3f8",
+        name: "#a78bfa",
+        sub: "rgba(242,243,248,0.45)",
+        radius: 12,
+        fontFamily: '"Onest","Segoe UI",system-ui,sans-serif',
+        fontWeight: 500,
+        nameWeight: 700,
+        letterSpacing: 0,
+        textShadow: "none",
+        nameShadow: "none",
+        iconShape: "rounded",
+        iconGlow: false,
+        uppercaseName: false,
+        bgImage: "",
+      };
+
+      /* ---------- emotes ---------- */
+      const emoteMap = new Map();
+
+      async function loadEmotes() {
+        try {
+          const [seven, bttv] = await Promise.all([
+            fetch("https://7tv.io/v3/emote-sets/global").then((r) => r.ok ? r.json() : null).catch(() => null),
+            fetch("https://api.betterttv.net/3/cached/emotes/global").then((r) => r.ok ? r.json() : null).catch(() => null),
+          ]);
+          if (seven && seven.emotes) {
+            for (const e of seven.emotes) {
+              const host = e.data && e.data.host;
+              if (!host || !host.url) continue;
+              const files = host.files || [];
+              const file = files.find((f) => f.name === "2x.webp") || files.find((f) => f.name === "1x.webp") || files[0];
+              if (file && e.name) emoteMap.set(e.name, "https:" + host.url + "/" + file.name);
+            }
+          }
+          if (Array.isArray(bttv)) {
+            for (const e of bttv) {
+              if (e.code && e.id) emoteMap.set(e.code, "https://cdn.betterttv.net/emote/" + e.id + "/2x.webp");
+            }
+          }
+        } catch {}
+      }
+      loadEmotes();
+
+      function applyLook(next) {
+        if (next.cfg) cfg = { ...cfg, ...next.cfg };
+        if (next.look) look = { ...look, ...next.look };
+        root.style.setProperty("--bg", look.background);
+        root.style.setProperty("--bg-image", look.bgImage ? `url("${look.bgImage}")` : "none");
+        root.style.setProperty("--border", look.border);
+        root.style.setProperty("--shadow", look.shadow);
+        root.style.setProperty("--r", (look.radius ?? 12) + "px");
+        root.style.setProperty("--text", look.text);
+        root.style.setProperty("--name", look.name);
+        root.style.setProperty("--fs", (cfg.fontSize ?? 16) + "px");
+        root.style.setProperty("--fw", look.fontWeight ?? 500);
+        root.style.setProperty("--nfw", look.nameWeight ?? 700);
+        root.style.setProperty("--ls", (look.letterSpacing ?? 0) + "px");
+        root.style.setProperty("--tsh", look.textShadow || "none");
+        root.style.setProperty("--nsh", look.nameShadow || "none");
+        root.style.setProperty("--font", look.fontFamily);
+        root.style.setProperty("--dur", (cfg.effectDuration ?? 0.32) + "s");
+        root.style.setProperty("--blur", look.id === "glass" ? "10px" : "0px");
+        document.body.classList.toggle("dir-down", cfg.dir === "down");
+        while (stack.children.length > (cfg.maxMessages || 8)) {
+          stack.removeChild(stack.firstChild);
+        }
+      }
+
+      function renderText(container, msg) {
+        const rawParts = Array.isArray(msg.parts) && msg.parts.length ? msg.parts : null;
+        if (rawParts) {
+          for (const part of rawParts) {
+            if (part.type === "emote" && part.url) {
+              const img = document.createElement("img");
+              img.className = "emote";
+              img.src = part.url;
+              img.alt = part.value || "";
+              img.loading = "lazy";
+              container.appendChild(img);
+            } else {
+              container.appendChild(document.createTextNode(part.value || ""));
+            }
+          }
+          return;
+        }
+        const text = msg.text || "";
+        const tokens = text.split(/(\s+)/);
+        for (const tok of tokens) {
+          if (!tok) continue;
+          const url = emoteMap.get(tok);
+          if (url) {
+            const img = document.createElement("img");
+            img.className = "emote";
+            img.src = url;
+            img.alt = tok;
+            img.title = tok;
+            container.appendChild(img);
+          } else {
+            container.appendChild(document.createTextNode(tok));
+          }
+        }
+      }
+
+      function addMessage(m) {
+        if (!m || (!m.text && !m.parts)) return;
+        if (m.sys) return;
+        hint.style.display = "none";
+
+        const el = document.createElement("div");
+        el.className = "msg";
+        if (look.uppercaseName) el.classList.add("upper");
+        if (cfg.effect && cfg.effect !== "none") el.classList.add("fx-" + cfg.effect);
+
+        const row = document.createElement("div");
+        row.className = "row";
+
+        if (cfg.showPlatform) {
+          const p = PLAT[m.platform] || { c: "#a78bfa" };
+          const dot = document.createElement("span");
+          dot.className = "plat " + (look.iconShape || "rounded") + (look.iconGlow ? " glow" : "");
+          dot.style.setProperty("--plat-color", p.c);
+          dot.innerHTML = PLATFORM_SVG[m.platform] || PLATFORM_SVG.twitch;
+          row.appendChild(dot);
+        }
+
+        const body = document.createElement("div");
+        body.className = "body";
+
+        if (cfg.showTime) {
+          const time = document.createElement("span");
+          time.className = "time";
+          const d = new Date(m.ts || Date.now());
+          time.textContent = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+          body.appendChild(time);
+        }
+
+        const who = document.createElement("span");
+        who.className = "who";
+        if (m.color && look.id === "clean") who.style.color = m.color;
+        who.textContent = m.author || "зритель";
+        body.appendChild(who);
+
+        const textSpan = document.createElement("span");
+        if (cfg.effect === "typewriter") {
+          body.appendChild(textSpan);
+          const full = m.text || "";
+          let i = 0;
+          const speed = Math.max(12, ((cfg.effectDuration ?? 0.32) * 1000) / Math.max(full.length, 1));
+          const tick = () => {
+            const slice = full.slice(0, (i += 1));
+            textSpan.textContent = "";
+            const toks = slice.split(/(\s+)/);
+            for (const tok of toks) {
+              if (!tok) continue;
+              const url = emoteMap.get(tok);
+              if (url) {
+                const img = document.createElement("img");
+                img.className = "emote";
+                img.src = url;
+                img.alt = tok;
+                textSpan.appendChild(img);
+              } else {
+                textSpan.appendChild(document.createTextNode(tok));
+              }
+            }
+            if (i < full.length) setTimeout(tick, speed);
+          };
+          tick();
+        } else {
+          renderText(textSpan, m);
+          body.appendChild(textSpan);
+        }
+
+        row.appendChild(body);
+        el.appendChild(row);
+        stack.appendChild(el);
+
+        while (stack.children.length > (cfg.maxMessages || 8)) {
+          stack.removeChild(stack.firstChild);
+        }
+
+        const ttl = cfg.duration ?? 8;
+        if (ttl > 0) {
+          setTimeout(() => {
+            el.classList.add("out");
+            setTimeout(() => el.remove(), 400);
+          }, ttl * 1000);
+        }
+      }
+
+      function connect() {
+        const ws = new WebSocket("ws://127.0.0.1:" + port + "/ws?token=" + encodeURIComponent(token));
+        ws.onopen = () => {
+          hint.textContent = "подключено, ждём сообщения…";
+        };
+        ws.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (data.type === "config") {
+              if (data.ttsAudio && data.ttsAudio.audioBase64) {
+                const audio = new Audio("data:audio/wav;base64," + data.ttsAudio.audioBase64);
+                audio.volume = 1;
+                audio.play().catch(() => {});
+              } else if (data.ttsPlay) {
+                const u = new SpeechSynthesisUtterance(data.ttsPlay.text);
+                u.lang = "ru-RU";
+                u.rate = data.ttsPlay.rate || 1;
+                u.volume = data.ttsPlay.volume || 1;
+                const vs = window.speechSynthesis.getVoices();
+                const v = vs.find((x) => x.voiceURI === data.ttsPlay.voice);
+                if (v) u.voice = v;
+                window.speechSynthesis.speak(u);
+              } else {
+                applyLook(data);
+              }
+            }
+            else if (data.type === "chat") addMessage(data.msg);
+          } catch {}
+        };
+        ws.onclose = () => {
+          hint.style.display = "block";
+          hint.textContent = "нет соединения — переподключение…";
+          setTimeout(connect, 2000);
+        };
+        ws.onerror = () => ws.close();
+      }
+      connect();
+    </script>
+  </body>
+</html>

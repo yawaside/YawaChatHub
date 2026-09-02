@@ -1,0 +1,83 @@
+{
+  "settingsSchemaVersion": 3,
+  "port": 47823,
+  "token": "yawa_9f3a7c21e8d4",
+  "theme": "midnight",
+  "closeToTray": false,
+  "minimizeToTray": false,
+  "startHidden": false,
+  "youtubeApiKey": "",
+  "overlayBounds": null,
+  "channels": [
+    { "platform": "twitch", "channelId": "shroud" },
+    { "platform": "kick", "channelId": "trainwreckstv" },
+    { "platform": "tiktok", "channelId": "@username" },
+    { "platform": "youtube", "channelId": "channel_handle" },
+    { "platform": "vk", "channelId": "vkplay_channel_id" }
+  ],
+  "tts": {
+    "enabled": false,
+    "rate": 1,
+    "volume": 0.9,
+    "voiceURI": "",
+    "template": { "author": true, "platform": true, "text": true },
+    "filters": {
+      "links": true,
+      "commands": true,
+      "emoji": false,
+      "dedupe": true,
+      "maxLen": 220,
+      "perMin": 24,
+      "maxCapsRatio": 65,
+      "squashRepeats": true,
+      "stripSymbols": true,
+      "minLen": 2,
+      "banWords": [],
+      "maskWords": [],
+      "banAuthors": [],
+      "allowAuthors": []
+    }
+  },
+  "chatView": {
+    "style": "classic",
+    "fontSize": 15,
+    "rowGap": 8,
+    "radius": 10,
+    "showPlatform": true,
+    "showTime": true,
+    "showBadges": true,
+    "messageEffect": "slide-up",
+    "effectDuration": 0.34
+  },
+  "widget": {
+    "theme": "minimal-dark",
+    "fontSize": 16,
+    "bgOpacity": 70,
+    "radius": 12,
+    "duration": 8,
+    "dir": "up",
+    "shadow": true,
+    "showPlatform": true,
+    "showTime": true,
+    "maxMessages": 8
+  },
+  "overlay": {
+    "enabled": false,
+    "bgOpacity": 55,
+    "clickThrough": false,
+    "mode": "compact",
+    "fontSize": 12,
+    "maxMessages": 6,
+    "locked": false
+  },
+  "hotkeys": {
+    "overlay:toggle": "Control+Shift+G",
+    "overlay:clicks": "Control+Shift+C",
+    "tts:toggle": "Control+Shift+T",
+    "tts:pause": "Control+Shift+P",
+    "tts:skip": "Control+Shift+S",
+    "tts:clear": "Control+Shift+Q",
+    "window:toggle": "Control+Shift+H",
+    "feed:clear": "Control+Shift+L"
+  }
+}
