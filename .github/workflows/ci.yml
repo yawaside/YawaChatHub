@@ -1,0 +1,30 @@
+name: ci
+
+# Быстрая проверка: интерфейс собирается без ошибок на каждом push и в PR.
+on:
+  push:
+    branches-ignore: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  renderer:
+    name: Проверка сборки интерфейса
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Сборка сайта (Next.js)
+        run: npm run build
+      - name: Сборка рендерера для Electron (Vite → dist/)
+        run: npm run build:renderer
+      - name: Артефакт (рендерер)
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-dist
+          path: dist
+          if-no-files-found: error
