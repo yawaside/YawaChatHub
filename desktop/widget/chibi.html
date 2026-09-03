@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>YawaChatHub — Chibi OBS widget</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent !important;
+      }
+      body { pointer-events: none; }
+
+      #stage {
+        position: fixed;
+        left: var(--x, 0px);
+        bottom: var(--y, 0px);
+        width: var(--w, 180px);
+        aspect-ratio: 3 / 4;
+        display: none;
+        isolation: isolate;
+      }
+      #stage.on { display: block; }
+
+      .body {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        will-change: transform;
+        backface-visibility: hidden;
+        transform: translateZ(0);
+      }
+      .sprite {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: center bottom;
+        display: none;
+        user-select: none;
+        -webkit-user-drag: none;
+        image-rendering: auto;
+        filter: drop-shadow(0 6px 16px rgba(0,0,0,0.38));
+      }
+      .sprite.active { display: block; }
+
+      .mouth-wrap {
+        position: absolute;
+        display: none;
+        pointer-events: none;
+        will-change: transform;
+      }
+      .mouth {
+        width: 100%;
+        height: 100%;
+        border-radius: 50% / 62%;
+        position: relative;
+        overflow: hidden;
+        transform-origin: center center;
+        box-shadow: inset 0 -1px 2px rgba(0,0,0,0.35), 0 0 1px rgba(0,0,0,0.35);
+      }
+      .mouth-inner {
+        position: absolute;
+        left: 18%;
+        top: 56%;
+        width: 64%;
+        height: 38%;
+        border-radius: 50%;
+        opacity: 0.9;
+      }
+
+      @keyframes idle {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-2px); }
+      }
+      @keyframes talk {
+        0%, 100% { transform: translateY(0) scale(1); }
+        50% { transform: translateY(-4px) scale(1.018); }
+      }
+      @keyframes mouthTalk {
+        0%, 100% { transform: scaleY(1); }
+        32% { transform: scaleY(0.42); }
+        64% { transform: scaleY(0.82); }
+      }
+
+      #stage.idle .body { animation: idle 3.4s ease-in-out infinite; }
+      #stage.talk .body { animation: talk 0.42s ease-in-out infinite; }
+      #stage.talk .mouth-wrap { display: block; }
+      #stage.talk .mouth { animation: mouthTalk 0.20s ease-in-out infinite; }
+    </style>
+  </head>
+  <body>
+    <div id="stage" class="idle">
+      <div class="body">
+        <img class="sprite" data-id="anime" src="/assets/chibi/anime.png" alt="" />
+        <img class="sprite" data-id="rust" src="/assets/chibi/rust.png" alt="" />
+        <img class="sprite" data-id="tarkov" src="/assets/chibi/tarkov.png" alt="" />
+      </div>
+      <div class="mouth-wrap" id="mouthWrap">
+        <div class="mouth" id="mouth"><div class="mouth-inner" id="mouthInner"></div></div>
+      </div>
+    </div>
+
+    <script>
+      const q = new URLSearchParams(location.search);
+      const token = q.get("token") || "";
+      const port = q.get("port") || location.port || "47823";
+      const preview = q.get("preview") || "";
+
+      const stage = document.getElementById("stage");
+      const mouthWrap = document.getElementById("mouthWrap");
+      const mouth = document.getElementById("mouth");
+      const mouthInner = document.getElementById("mouthInner");
+      let talkTimer = 0;
+      let lastTts = null;
+
+      // Координаты рта в процентах от контейнера 3:4. Подобраны под красивые PNG-модельки.
+      const MOUTH = {
+        anime:  { cx: 50, cy: 37.8, w: 8.2, h: 6.2, color: "#8f3348", inner: "#f1a0b8" },
+        rust:   { cx: 50, cy: 36.8, w: 8.2, h: 6.0, color: "#6d2b1d", inner: "#d7957a" },
+        tarkov: { cx: 50, cy: 36.2, w: 7.4, h: 5.6, color: "#4f3a2d", inner: "#b78d72" },
+      };
+
+      function setModel(state) {
+        lastTts = state || lastTts;
+        const enabled = !!(lastTts && lastTts.chibiEnabled && lastTts.chibi && lastTts.chibi !== "none");
+        const id = enabled ? lastTts.chibi : null;
+        for (const img of stage.querySelectorAll(".sprite")) {
+          img.classList.toggle("active", img.getAttribute("data-id") === id);
+        }
+        if (!enabled || !id) {
+          stage.classList.remove("on", "talk");
+          stage.classList.add("idle");
+          return;
+        }
+        stage.classList.add("on");
+        stage.classList.add("idle");
+        if (lastTts.chibiSize) stage.style.setProperty("--w", lastTts.chibiSize + "px");
+        const m = MOUTH[id];
+        if (m) {
+          mouthWrap.style.left = (m.cx - m.w / 2) + "%";
+          mouthWrap.style.top = (m.cy - m.h / 2) + "%";
+          mouthWrap.style.width = m.w + "%";
+          mouthWrap.style.height = m.h + "%";
+          mouth.style.background = m.color;
+          mouthInner.style.background = m.inner;
+        }
+      }
+
+      function speak(ms) {
+        if (!lastTts || !lastTts.chibiEnabled || lastTts.chibi === "none") return;
+        setModel(lastTts);
+        clearTimeout(talkTimer);
+        stage.classList.add("talk", "on");
+        stage.classList.remove("idle");
+        talkTimer = setTimeout(() => {
+          stage.classList.remove("talk");
+          stage.classList.add("idle");
+        }, Math.max(650, Math.min(20000, ms || 2200)));
+      }
+
+      // Режим локального просмотра без OBS/WebSocket: /chibi?preview=anime
+      if (preview && MOUTH[preview]) {
+        setModel({ chibiEnabled: true, chibi: preview, chibiSize: Number(q.get("size") || 220) });
+        setInterval(() => speak(1200), 2200);
+      }
+
+      function estimateDuration(text, rate) {
+        const chars = String(text || "").length;
+        return Math.max(900, Math.min(16000, (chars * 72) / Math.max(0.5, Number(rate) || 1)));
+      }
+
+      function connect() {
+        if (!token) return;
+        const ws = new WebSocket("ws://127.0.0.1:" + port + "/ws?token=" + encodeURIComponent(token));
+        ws.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (data.type !== "config") return;
+            if (data.tts) setModel(data.tts);
+            if (data.ttsAudio) speak(data.ttsAudio.durationMs || estimateDuration(data.ttsAudio.text, 1));
+            else if (data.ttsPlay) speak(estimateDuration(data.ttsPlay.text, data.ttsPlay.rate));
+          } catch { /* noop */ }
+        };
+        ws.onclose = () => setTimeout(connect, 2000);
+        ws.onerror = () => ws.close();
+      }
+      connect();
+    </script>
+  </body>
+</html>
