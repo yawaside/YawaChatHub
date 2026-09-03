@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>YawaChatHub — чиби-моделька (OBS)</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+      body { display: grid; place-items: end center; }
+
+      #stage {
+        position: relative;
+        width: min(100vw, 100vh);
+        aspect-ratio: 1 / 1;
+        display: none;
+      }
+      #stage.on { display: block; }
+
+      .layer {
+        position: absolute;
+        inset: 0;
+        background-size: contain;
+        background-position: center;
+        background-repeat: no-repeat;
+        will-change: transform;
+        backface-visibility: hidden;
+        filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.32));
+      }
+
+      /* ---------- анимации «жизни» ---------- */
+      @keyframes breathe {
+        0%, 100% { transform: scaleY(1) scaleX(1) translateY(0); }
+        50%      { transform: scaleY(1.012) scaleX(1.004) translateY(-0.4%); }
+      }
+      @keyframes headSway {
+        0%, 100% { transform: rotate(-1.4deg) translateY(0); }
+        25%      { transform: rotate(0.2deg) translateY(-0.5%); }
+        50%      { transform: rotate(1.4deg) translateY(0); }
+        75%      { transform: rotate(0.2deg) translateY(-0.5%); }
+      }
+      @keyframes armL { 0%, 100% { transform: rotate(-1.6deg) } 50% { transform: rotate(1.4deg) } }
+      @keyframes armR { 0%, 100% { transform: rotate(1.6deg) } 50% { transform: rotate(-1.4deg) } }
+
+      #body { transform-origin: 50% 100%; animation: breathe 4s ease-in-out infinite; }
+      #head { animation: headSway 6.5s ease-in-out infinite; }
+      #armL { transform-origin: 78% 8%; animation: armL 5.2s ease-in-out infinite; }
+      #armR { transform-origin: 22% 8%; animation: armR 5.2s ease-in-out infinite; }
+
+      #stage.talk #body { animation-duration: 1.6s; }
+      #stage.talk #head { animation-duration: 2.6s; }
+      #stage.talk #armL, #stage.talk #armR { animation-duration: 2.2s; }
+
+      #face { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+      #hint {
+        position: fixed;
+        left: 8px;
+        bottom: 8px;
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 11px;
+        color: #9aa1b5;
+        opacity: 0.65;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div class="layer" id="body"></div>
+      <div class="layer" id="armL"></div>
+      <div class="layer" id="armR"></div>
+      <div class="layer" id="head">
+        <svg id="face" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <g id="lids" style="display:none">
+            <ellipse id="lidL" cx="43.5" cy="28.5" rx="2.3" ry="2.1" fill="#fbe3d8" />
+            <ellipse id="lidR" cx="56.5" cy="28.5" rx="2.3" ry="2.1" fill="#fbe3d8" />
+          </g>
+          <ellipse id="mouth" cx="50" cy="34" rx="1.7" ry="0" fill="#c94a5a" opacity="0.9" />
+        </svg>
+      </div>
+    </div>
+    <div id="hint">ожидание подключения…</div>
+
+    <script>
+      const q = new URLSearchParams(location.search);
+      const token = q.get("token") || "";
+      const port = q.get("port") || location.port || "47823";
+
+      const stage = document.getElementById("stage");
+      const hint = document.getElementById("hint");
+      const mouthEl = document.getElementById("mouth");
+      const lids = document.getElementById("lids");
+      const lidL = document.getElementById("lidL");
+      const lidR = document.getElementById("lidR");
+      const layers = {
+        body: document.getElementById("body"),
+        armL: document.getElementById("armL"),
+        armR: document.getElementById("armR"),
+        head: document.getElementById("head"),
+      };
+
+      /* Геометрия лица и линия среза головы для каждой модельки. */
+      const META = {
+        anime: {
+          src: "/assets/chibi/anime.png", headCut: 46,
+          mouth: { cx: 50, cy: 34, rx: 1.7, ry: 2.6, color: "#c94a5a" },
+          eyes: { lx: 43.5, rx: 56.5, cy: 28.5, w: 4.6, h: 4.2, skin: "#fbe3d8" },
+        },
+        rust: {
+          src: "/assets/chibi/rust.png", headCut: 44,
+          mouth: { cx: 50, cy: 31, rx: 1.8, ry: 2.5, color: "#7a3a2a" },
+          eyes: { lx: 44, rx: 56, cy: 26, w: 4.2, h: 3.6, skin: "#e8c4a4" },
+        },
+        tarkov: {
+          src: "/assets/chibi/tarkov.png", headCut: 44,
+          mouth: { cx: 50, cy: 30, rx: 1.6, ry: 2.3, color: "#6a5a48" },
+          eyes: { lx: 44, rx: 56, cy: 25.5, w: 4.0, h: 3.4, skin: "#e3d4c0" },
+        },
+      };
+
+      let meta = null;
+
+      function applyChibi(state) {
+        const id = state && state.chibiEnabled && state.chibi && state.chibi !== "none" ? state.chibi : null;
+        if (!id || !META[id]) {
+          stage.classList.remove("on", "talk");
+          hint.style.display = "block";
+          hint.textContent = "моделька выключена в настройках озвучки";
+          return;
+        }
+        meta = META[id];
+        const url = 'url("' + meta.src + '")';
+        for (const el of Object.values(layers)) el.style.backgroundImage = url;
+
+        // режем слои: голова / тело / руки
+        layers.head.style.clipPath = "inset(0 0 " + (100 - meta.headCut) + "% 0)";
+        layers.head.style.transformOrigin = "50% " + meta.headCut + "%";
+        layers.body.style.clipPath = "inset(" + meta.headCut + "% 0 0 0)";
+        layers.armL.style.clipPath = "inset(" + (meta.headCut + 4) + "% 66% 12% 0)";
+        layers.armR.style.clipPath = "inset(" + (meta.headCut + 4) + "% 0 12% 66%)";
+
+        // лицо
+        mouthEl.setAttribute("cx", meta.mouth.cx);
+        mouthEl.setAttribute("cy", meta.mouth.cy);
+        mouthEl.setAttribute("fill", meta.mouth.color);
+        lidL.setAttribute("cx", meta.eyes.lx); lidL.setAttribute("cy", meta.eyes.cy);
+        lidL.setAttribute("rx", meta.eyes.w / 2); lidL.setAttribute("ry", meta.eyes.h / 2);
+        lidL.setAttribute("fill", meta.eyes.skin);
+        lidR.setAttribute("cx", meta.eyes.rx); lidR.setAttribute("cy", meta.eyes.cy);
+        lidR.setAttribute("rx", meta.eyes.w / 2); lidR.setAttribute("ry", meta.eyes.h / 2);
+        lidR.setAttribute("fill", meta.eyes.skin);
+
+        stage.classList.add("on");
+        hint.style.display = "none";
+      }
+
+      /* ---------- моргание ---------- */
+      (function blinkLoop() {
+        setTimeout(() => {
+          lids.style.display = "block";
+          setTimeout(() => { lids.style.display = "none"; blinkLoop(); }, 140);
+        }, 2200 + Math.random() * 3800);
+      })();
+
+      /* ---------- плавный рот ---------- */
+      let target = 0;   // куда стремимся (0..1)
+      let current = 0;  // текущее сглаженное значение
+      let talkUntil = 0;
+
+      function mouthLoop() {
+        // экспоненциальное сглаживание — рот открывается/закрывается плавно
+        current += (target - current) * 0.28;
+        if (meta) {
+          const ry = Math.max(0, meta.mouth.ry * current);
+          mouthEl.setAttribute("ry", ry.toFixed(3));
+          mouthEl.setAttribute("rx", (meta.mouth.rx * (0.85 + current * 0.3)).toFixed(3));
+        }
+        const talking = performance.now() < talkUntil;
+        stage.classList.toggle("talk", talking);
+        if (!talking) target = 0;
+        requestAnimationFrame(mouthLoop);
+      }
+      requestAnimationFrame(mouthLoop);
+
+      /** Речь без потока звука: естественная синусоида вместо ровного мигания. */
+      let synthT = 0;
+      let synthTimer = null;
+      function startSynthMouth(durationMs) {
+        talkUntil = performance.now() + durationMs;
+        clearInterval(synthTimer);
+        synthTimer = setInterval(() => {
+          if (performance.now() >= talkUntil) { clearInterval(synthTimer); target = 0; return; }
+          synthT += 0.16;
+          target = Math.max(0.06, Math.min(1, 0.55 + 0.3 * Math.sin(synthT) + 0.15 * Math.sin(synthT * 2.7)));
+        }, 40);
+      }
+
+      /** Настоящий липсинк: рот следует за громкостью воспроизводимого WAV. */
+      let audioCtx = null;
+      function playWithLipsync(audio) {
+        try {
+          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+          const srcNode = audioCtx.createMediaElementSource(audio);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 512;
+          analyser.smoothingTimeConstant = 0.6;
+          srcNode.connect(analyser);
+          analyser.connect(audioCtx.destination);
+          const buf = new Uint8Array(analyser.frequencyBinCount);
+
+          const step = () => {
+            if (audio.paused || audio.ended) { target = 0; return; }
+            analyser.getByteTimeDomainData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i += 1) {
+              const v = (buf[i] - 128) / 128;
+              sum += v * v;
+            }
+            const rms = Math.sqrt(sum / buf.length);
+            target = Math.max(0, Math.min(1, rms * 6));
+            talkUntil = performance.now() + 250;
+            requestAnimationFrame(step);
+          };
+          audio.addEventListener("play", () => requestAnimationFrame(step), { once: true });
+          audio.addEventListener("ended", () => { target = 0; });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function connect() {
+        const ws = new WebSocket("ws://127.0.0.1:" + port + "/ws?token=" + encodeURIComponent(token));
+        ws.onopen = () => {
+          if (!stage.classList.contains("on")) hint.textContent = "подключено, ждём настройки…";
+        };
+        ws.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (data.type !== "config") return;
+
+            if (data.ttsAudio && data.ttsAudio.audioBase64) {
+              const audio = new Audio("data:audio/wav;base64," + data.ttsAudio.audioBase64);
+              // виджет модельки не дублирует звук — его играет виджет чата.
+              audio.muted = true;
+              audio.volume = 0;
+              const ok = playWithLipsync(audio);
+              audio.play().catch(() => {});
+              if (!ok) {
+                audio.addEventListener("loadedmetadata", () => {
+                  startSynthMouth(Math.max(600, (audio.duration || 2.2) * 1000));
+                });
+              }
+            } else if (data.ttsPlay) {
+              const text = data.ttsPlay.text || "";
+              const rate = data.ttsPlay.rate || 1;
+              startSynthMouth(Math.min(15000, Math.max(900, (text.length * 78) / rate)));
+            } else if (data.tts) {
+              applyChibi(data.tts);
+            }
+          } catch { /* noop */ }
+        };
+        ws.onclose = () => {
+          hint.style.display = "block";
+          hint.textContent = "нет соединения — переподключение…";
+          setTimeout(connect, 2000);
+        };
+        ws.onerror = () => ws.close();
+      }
+      connect();
+    </script>
+  </body>
+</html>
