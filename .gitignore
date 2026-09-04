@@ -1,0 +1,26 @@
+# зависимости
+node_modules/
+desktop/node_modules/
+
+# сборки — НЕ пушатся в git (весят >100МБ, собираются в GitHub Actions)
+# Готовые exe качаются из Actions → Artifacts и из Releases
+dist/
+desktop/release/
+desktop/renderer-dist/
+desktop/out/
+release-files/
+
+# настройки с токеном — не коммитим
+desktop/settings.json
+settings.json
+
+# служебное
+.DS_Store
+Thumbs.db
+*.log
+
+# Next.js (сайт)
+.next/
+out/
+next-env.d.ts
+tsconfig.tsbuildinfo
