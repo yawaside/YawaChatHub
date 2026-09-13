@@ -1,0 +1,13 @@
+{
+  "name": "yawa-tiktok-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Коннектор TikTok LIVE для YawaChatHub (tiktok-live-connector, порт рабочей реализации из YawaChat_Hub)",
+  "main": "bridge.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "tiktok-live-connector": "^2.4.4"
+  }
+}

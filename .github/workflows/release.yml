@@ -1,0 +1,137 @@
+name: release
+
+# Каждый пуш в main = новый релиз с новым тегом:
+#   v1.2.1 → v1.2.2 → … → v1.2.9 → v1.3.0 → … → v1.9.9 → v2.0.0
+# В Release прикрепляется готовый YawaChatHub-<версия>.exe (без архивов).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build & release (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------- версия ----------
+      - name: Определить версию релиза
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Некорректный VERSION: '$v'" }
+          git fetch --tags --quiet
+
+          # если тег уже занят — берём следующую свободную версию,
+          # чтобы каждый пуш гарантированно давал новый релиз
+          while (git tag -l "v$v") {
+            node -e "import('./scripts/bump-version.mjs')" | Out-Null
+            $v = (Get-Content VERSION -Raw).Trim()
+            Write-Host "Тег занят, поднимаем до $v"
+          }
+
+          echo "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Релизная версия: $v"
+
+      # ---------- интерфейс ----------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Зависимости рендерера
+        run: npm install
+
+      - name: Vite → dist (single-file интерфейс)
+        run: npm run build
+
+      # ---------- хост ----------
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Иконка приложения
+        run: node scripts/make-icon.mjs
+
+      - name: Синхронизация версии в csproj
+        run: node scripts/sync-version.mjs
+
+      - name: Restore (RID win-x64)
+        run: dotnet restore webview2/YawaChatHub.WebView2.csproj -r win-x64
+
+      - name: Publish single-file exe
+        run: >
+          dotnet publish webview2/YawaChatHub.WebView2.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o publish --no-restore
+
+      - name: Подготовить файл релиза
+        id: exe
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $name = "YawaChatHub-$v-win-x64.exe"
+          Copy-Item publish\YawaChatHub.exe $name -Force
+          $size = [math]::Round((Get-Item $name).Length / 1MB, 1)
+          Write-Host "Готов $name ($size MB)"
+          echo "name=$name" >> $env:GITHUB_OUTPUT
+
+      # ---------- заметки ----------
+      - name: Заметки релиза из CHANGELOG.md
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $notes = ""
+          if (Test-Path CHANGELOG.md) {
+            $log = Get-Content CHANGELOG.md -Raw
+            $m = [regex]::Match($log, "(?ms)## \[$([regex]::Escape($v))\]\s*(.+?)(?=(## \[)|\z)")
+            if ($m.Success) { $notes = $m.Groups[1].Value.Trim() }
+          }
+          if (-not $notes) {
+            $notes = "Сборка **v$v** (WebView2).`n`nСкачайте ``${{ steps.exe.outputs.name }}`` и запустите — установка не требуется."
+          }
+          $notes | Out-File release-notes.md -Encoding utf8
+
+      # ---------- релиз ----------
+      - name: GitHub Release с .exe
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: YawaChatHub v${{ steps.ver.outputs.version }}
+          body_path: release-notes.md
+          files: ${{ steps.exe.outputs.name }}
+          fail_on_unmatched_files: true
+          make_latest: true
+
+      # ---------- следующая версия ----------
+      - name: Поднять VERSION для следующего релиза [skip ci]
+        shell: pwsh
+        run: |
+          node scripts/bump-version.mjs
+          $next = (Get-Content VERSION -Raw).Trim()
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION webview2/YawaChatHub.WebView2.csproj
+          if (git diff --cached --quiet) {
+            Write-Host "Изменений нет"
+          } else {
+            git commit -m "chore: версия $next [skip ci]"
+            git pull --rebase origin main
+            git push origin HEAD:main
+            Write-Host "Следующая версия: $next"
+          }
