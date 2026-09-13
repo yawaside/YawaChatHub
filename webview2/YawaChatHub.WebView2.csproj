@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    YawaChatHub — WebView2-оболочка (замена desktop/electron).
+    Собирает единый exe: интерфейс из ../dist (single-file сборка Vite)
+    встраивается как ресурсный файл и отдаётся через виртуальный хост.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>YawaChatHub</RootNamespace>
+    <AssemblyName>YawaChatHub</AssemblyName>
+    <!-- Группировка в диспетчере задач идёт по ОПИСАНИЮ файла (FileDescription).
+         Без него Windows подписывала группу «Служебная программа». -->
+    <AssemblyTitle>YawaChatHub</AssemblyTitle>
+    <Product>YawaChatHub</Product>
+    <Company>YawaChatHub</Company>
+    <Description>YawaChatHub — чат всех стримов в одном окне</Description>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- версия синхронизируется из корневого VERSION (scripts/sync-version.mjs) -->
+    <Version>1.7.7</Version>
+    <AssemblyVersion>1.7.7.0</AssemblyVersion>
+    <FileVersion>1.7.7.0</FileVersion>
+    <PublishSingleFile>false</PublishSingleFile>
+    <!-- иконка exe и ярлыка (генерируется scripts/make-icon.mjs) -->
+    <ApplicationIcon Condition="Exists('icon.ico')">icon.ico</ApplicationIcon>
+    <!-- конфликт WindowsBase из WPF-части WebView2 — безвреден, глушим для чистого лога -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Рантайм WebView2 (Evergreen) + загрузчик -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <!-- Быстрое воспроизведение MP3 из памяти для Edge TTS (без временных файлов) -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Интерфейс рендерера (npm run build → ../dist/index.html, single-file)
+         ВСТРАИВАЕТСЯ ВНУТРЬ exe как ресурс — при запуске извлекается в
+         %LOCALAPPDATA%\YawaChatHub\renderer\. Так zip из одного exe самодостаточен. -->
+    <EmbeddedResource Include="..\dist\index.html" LogicalName="yawa-renderer-index.html" />
+    <!-- та же иконка для окна и трея -->
+    <EmbeddedResource Include="icon.ico" LogicalName="yawa-icon.ico" Condition="Exists('icon.ico')" />
+  </ItemGroup>
+
+  <!-- Понятная ошибка, если рендерер не собран -->
+  <Target Name="RequireRendererDist" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('..\dist\index.html')"
+           Text="dist/index.html не найден — сначала соберите интерфейс: npm install &amp;&amp; npm run build" />
+  </Target>
+
+</Project>

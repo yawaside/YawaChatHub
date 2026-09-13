@@ -1,0 +1,337 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800&family=Oswald:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+:root {
+  /* значения по умолчанию = вариант «Команда», перекрываются getVariant() в коде */
+  --dw-bg: #0a0b13;
+  --dw-panel: #10121d;
+  --dw-panel2: #161929;
+  --dw-line: rgba(255, 255, 255, 0.08);
+  --dw-text: #eceef6;
+  --dw-dim: #8b91a8;
+  --dw-hover: rgba(255, 255, 255, 0.05);
+  --dw-input: rgba(255, 255, 255, 0.06);
+  --dw-scroll: rgba(255, 255, 255, 0.16);
+  --range-rest: rgba(255, 255, 255, 0.14);
+  --dw-accent: #8b5cf6;
+  --dw-accent-2: #a78bfa;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Скругление содержимого под скруглённое окно хоста.
+   Оверлей и виджет остаются прямыми — у них свои радиусы. */
+body:not(.dw-flat) #root > .dw-window {
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--dw-bg);
+  color: var(--dw-text);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+.dw-mono,
+.dw-mono * {
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace !important;
+  letter-spacing: -0.01em;
+}
+
+/* -- selectability of chat text -- */
+.selectable {
+  user-select: text;
+}
+
+/* ---------- scrollbars ---------- */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--dw-scroll);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--dw-accent-2);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dw-scroll) transparent;
+}
+
+/* ---------- inputs ---------- */
+input[type="text"],
+input[type="password"],
+input[type="number"],
+select,
+textarea {
+  outline: none;
+}
+input[type="checkbox"] {
+  accent-color: var(--dw-accent);
+}
+
+/* range slider */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(
+    to right,
+    var(--dw-accent) 0%,
+    var(--dw-accent) var(--fill, 50%),
+    var(--range-rest) var(--fill, 50%),
+    var(--range-rest) 100%
+  );
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3.5px solid var(--dw-accent);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  transition: transform 0.12s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3.5px solid var(--dw-accent);
+}
+
+/* ---------- animations ---------- */
+@keyframes dw-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.msg-anim {
+  animation: dw-msg-in 0.22s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+/* Стиль Rust: в игре чат заметно жирнее обычного текста */
+.style-rust,
+.style-rust * {
+  font-weight: 700 !important;
+  letter-spacing: 0.01em;
+}
+
+/* ---------- эффекты появления (лента, оверлей, виджет) ----------
+   Длительность приходит из настроек в переменной --fx-speed. */
+.fx {
+  animation-duration: var(--fx-speed, 280ms);
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+.fx-fade {
+  animation-name: fx-fade;
+}
+.fx-slide-left {
+  animation-name: fx-slide-left;
+}
+.fx-slide-up {
+  animation-name: fx-slide-up;
+}
+.fx-scale {
+  animation-name: fx-scale;
+}
+.fx-blur {
+  animation-name: fx-blur;
+}
+.fx-bounce {
+  animation-name: fx-bounce;
+  animation-timing-function: cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+.fx-typewriter {
+  animation-name: fx-typewriter;
+  animation-timing-function: steps(24, end);
+}
+
+@keyframes fx-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fx-typewriter {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.3;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+@keyframes fx-slide-left {
+  from { opacity: 0; transform: translateX(-14%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes fx-slide-up {
+  from { opacity: 0; transform: translateY(60%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fx-scale {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes fx-blur {
+  from { opacity: 0; filter: blur(6px); }
+  to { opacity: 1; filter: blur(0); }
+}
+@keyframes fx-bounce {
+  from { opacity: 0; transform: translateY(45%) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes dw-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+.toast-anim {
+  animation: dw-toast-in 0.25s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+@keyframes dw-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.pop-anim {
+  animation: dw-pop 0.16s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+@keyframes dw-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-anim {
+  animation: dw-fade 0.18s ease both;
+}
+
+@keyframes dw-pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(74, 222, 128, 0);
+  }
+}
+.pulse-dot {
+  /* Статичное свечение вместо бесконечной compositor-анимации: визуальный
+     индикатор сохраняется, а WebView2 не рисует 60 кадров/сек в простое. */
+  box-shadow: 0 0 6px currentColor;
+}
+
+@keyframes dw-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.term-blink {
+  /* Без бесконечной анимации курсора — она держала renderer активным. */
+  opacity: 0.85;
+}
+
+/* dragging the frameless window */
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Сообщения вне видимой области не участвуют в layout/paint. Это нативная
+   виртуализация Chromium: история и поиск сохраняются, CPU на длинной ленте
+   резко снижается. */
+.dw-msg {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 28px;
+}
+
+/* Плотность ленты — только внутренние поля строки.
+   Расстояние МЕЖДУ сообщениями задаётся настройкой «Интервал» (gap),
+   поэтому при значении 0 строки действительно смыкаются вплотную. */
+.feed-cozy .dw-msg {
+  padding: 7px 14px;
+  margin: 0 8px;
+}
+.feed-standard .dw-msg {
+  padding: 4px 12px;
+  margin: 0 8px;
+}
+.feed-compact .dw-msg {
+  padding: 1px 8px;
+  margin: 0 4px;
+  line-height: 1.3;
+}
+/* максимально плотно: строки почти без отступов */
+.feed-tight .dw-msg {
+  padding: 0 3px;
+  margin: 0;
+  line-height: 1.15;
+}
+.feed-tight {
+  padding-left: 3px !important;
+  padding-right: 3px !important;
+}
+
+.dw-glass {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
