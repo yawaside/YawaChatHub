@@ -1,0 +1,25 @@
+# зависимости (кроме моста TikTok — его node_modules нужен в релизе)
+node_modules/
+!tiktok-bridge/node_modules/
+
+# сборка рендерера (CI собирает сам; локально — npm run build)
+dist/
+
+# сборка .NET хоста
+publish/
+**/bin/
+**/obj/
+*.user
+
+# встроенный рантайм хоста (генерируется scripts/bundle-runtime.mjs перед publish)
+webview2/runtime/
+
+# артефакты и служебное
+*.zip
+release-notes.md
+.vs/
+.vscode/
+*.log
+
+# секреты песочницы (не коммитить в GitHub)
+.env
