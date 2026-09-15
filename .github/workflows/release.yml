@@ -1,0 +1,185 @@
+name: release
+
+# Каждый пуш в main = новый релиз с новым тегом:
+#   v1.2.1 → v1.2.2 → … → v1.2.9 → v1.3.0 → … → v1.9.9 → v2.0.0
+# В Release прикрепляется готовый YawaChatHub-<версия>.exe (без архивов).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build & release (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------- версия ----------
+      - name: Определить версию релиза
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          if ($v -notmatch '^\d+\.[0-9]\.[0-9]$') {
+            throw "Некорректный VERSION: '$v'. После 1.8.9 должна идти 1.9.0"
+          }
+          git fetch --tags --quiet
+
+          # если тег уже занят — берём следующую свободную версию,
+          # чтобы каждый пуш гарантированно давал новый релиз
+          while (git tag -l "v$v") {
+            node -e "import('./scripts/bump-version.mjs')" | Out-Null
+            $v = (Get-Content VERSION -Raw).Trim()
+            Write-Host "Тег занят, поднимаем до $v"
+          }
+
+          echo "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Релизная версия: $v"
+
+      # ---------- интерфейс ----------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Зависимости рендерера
+        run: npm install
+
+      - name: Vite → dist (single-file интерфейс)
+        run: npm run build
+
+      # ---------- хост ----------
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Иконка приложения
+        run: node scripts/make-icon.mjs
+
+      - name: Синхронизация версии в csproj
+        run: node scripts/sync-version.mjs
+
+      - name: Встроить Node.js и TikTok-мост в exe
+        run: node scripts/bundle-runtime.mjs
+
+      - name: Restore (RID win-x64)
+        run: dotnet restore webview2/YawaChatHub.WebView2.csproj -r win-x64
+
+      - name: Publish single-file exe
+        run: >
+          dotnet publish webview2/YawaChatHub.WebView2.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o publish --no-restore
+
+      # ---------- подпись кода ----------
+      # Убирает предупреждение Windows SmartScreen «Не удается проверить
+      # издателя». Оно возникает у ЛЮБОГО неподписанного exe, скачанного из
+      # интернета (Mark-of-the-Web), и без сертификата не исчезает никогда —
+      # репутация неподписанного файла привязана к хэшу и обнуляется с каждой
+      # новой сборкой. Ставим Authenticode-подпись с RFC3161-меткой времени
+      # (sha256), чтобы подпись оставалась действительной после истечения
+      # сертификата. Секреты: CERT_PFX_BASE64 (+ CERT_PFX_PASSWORD) —
+      # см. README «Подпись кода». Секрета нет → сборка идёт без подписи.
+      - name: Подписать exe сертификатом (если настроен)
+        shell: pwsh
+        env:
+          CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+          CERT_PFX_PASSWORD: ${{ secrets.CERT_PFX_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CERT_PFX_BASE64)) {
+            Write-Host 'Секрет CERT_PFX_BASE64 не задан — выпускаем без подписи.'
+            Write-Host 'Чтобы убрать предупреждение SmartScreen, настройте подпись: README → «Подпись кода».'
+            return
+          }
+
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' -ErrorAction SilentlyContinue |
+            Sort-Object @{ Expression = { try { [version]($_.Directory.Parent.Name) } catch { [version]'0.0' } } } -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) { throw 'signtool.exe не найден в образе раннера' }
+
+          $certPath = Join-Path $env:RUNNER_TEMP 'yawa-codesign.pfx'
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:CERT_PFX_BASE64))
+
+          $exe = 'publish\YawaChatHub.exe'
+          & $signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com `
+            /f $certPath /p $env:CERT_PFX_PASSWORD `
+            /d 'YawaChatHub' /du 'https://github.com/yawaside/YawaChatHub-WebView2' $exe
+          $code = $LASTEXITCODE
+          Remove-Item $certPath -Force -ErrorAction SilentlyContinue
+          if ($code -ne 0) { throw "Подпись не удалась (signtool: $code) — проверьте CERT_PFX_BASE64 / CERT_PFX_PASSWORD" }
+
+          & $signtool verify /pa $exe
+          if ($LASTEXITCODE -ne 0) { throw 'Проверка подписи после sign не пройдена' }
+          Write-Host "Подписано: $exe"
+
+      - name: Подготовить файл релиза
+        id: exe
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          # Имя файла для пользователя: «YawaChatHub 1.8.0.exe»
+          $name = "YawaChatHub $v.exe"
+          Copy-Item publish\YawaChatHub.exe -Destination $name -Force
+          $size = [math]::Round((Get-Item -LiteralPath $name).Length / 1MB, 1)
+          Write-Host "Готов $name ($size MB)"
+          echo "name=$name" >> $env:GITHUB_OUTPUT
+
+      # ---------- заметки ----------
+      - name: Заметки релиза из CHANGELOG.md
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $notes = ""
+          if (Test-Path CHANGELOG.md) {
+            $log = Get-Content CHANGELOG.md -Raw
+            $m = [regex]::Match($log, "(?ms)## \[$([regex]::Escape($v))\]\s*(.+?)(?=(## \[)|\z)")
+            if ($m.Success) { $notes = $m.Groups[1].Value.Trim() }
+          }
+          if (-not $notes) {
+            $notes = "Сборка **v$v** (WebView2).`n`nСкачайте ``${{ steps.exe.outputs.name }}`` и запустите — установка не требуется."
+          }
+          $notes | Out-File release-notes.md -Encoding utf8
+
+      # ---------- релиз ----------
+      - name: GitHub Release с .exe
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: YawaChatHub v${{ steps.ver.outputs.version }}
+          body_path: release-notes.md
+          # кавычки обязательны: в имени файла есть пробел
+          files: "${{ steps.exe.outputs.name }}"
+          fail_on_unmatched_files: true
+          make_latest: true
+
+      # ---------- следующая версия ----------
+      - name: Поднять VERSION для следующего релиза [skip ci]
+        shell: pwsh
+        run: |
+          node scripts/bump-version.mjs
+          $next = (Get-Content VERSION -Raw).Trim()
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION webview2/YawaChatHub.WebView2.csproj
+          if (git diff --cached --quiet) {
+            Write-Host "Изменений нет"
+          } else {
+            git commit -m "chore: версия $next [skip ci]"
+            git pull --rebase origin main
+            git push origin HEAD:main
+            Write-Host "Следующая версия: $next"
+          }
