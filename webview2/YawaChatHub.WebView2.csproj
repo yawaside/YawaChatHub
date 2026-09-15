@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    YawaChatHub — WebView2-оболочка (замена desktop/electron).
+    Собирает единый exe: интерфейс из ../dist (single-file сборка Vite)
+    встраивается как ресурсный файл и отдаётся через виртуальный хост.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>YawaChatHub</RootNamespace>
+    <AssemblyName>YawaChatHub</AssemblyName>
+    <!-- Группировка в диспетчере задач идёт по ОПИСАНИЮ файла (FileDescription).
+         Без него Windows подписывала группу «Служебная программа». -->
+    <AssemblyTitle>YawaChatHub</AssemblyTitle>
+    <Product>YawaChatHub</Product>
+    <Company>YawaChatHub</Company>
+    <Description>YawaChatHub — чат всех стримов в одном окне</Description>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- версия синхронизируется из корневого VERSION (scripts/sync-version.mjs) -->
+    <Version>1.8.8</Version>
+    <AssemblyVersion>1.8.8.0</AssemblyVersion>
+    <FileVersion>1.8.8.0</FileVersion>
+    <PublishSingleFile>false</PublishSingleFile>
+    <!-- иконка exe и ярлыка (генерируется scripts/make-icon.mjs) -->
+    <ApplicationIcon Condition="Exists('icon.ico')">icon.ico</ApplicationIcon>
+    <!-- Манифест: запуск без прав администратора + поддержка Windows 10/11.
+         Оба пункта нужны, чтобы диспетчер задач собирал окно, оверлей и
+         процессы движка в одну группу «YawaChatHub». -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- конфликт WindowsBase из WPF-части WebView2 — безвреден, глушим для чистого лога -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Рантайм WebView2 (Evergreen) + загрузчик -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <!-- Быстрое воспроизведение MP3 из памяти для Edge TTS (без временных файлов) -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- Полностью управляемый MP3-декодер: запасной путь Edge TTS на ПК без
+         системных медиакодеков (Windows N/KN и сборки без Media Feature Pack) -->
+    <PackageReference Include="NLayer" Version="3.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Интерфейс рендерера (npm run build → ../dist/index.html, single-file)
+         ВСТРАИВАЕТСЯ ВНУТРЬ exe как ресурс — при запуске извлекается в
+         %LOCALAPPDATA%\YawaChatHub\renderer\. Так zip из одного exe самодостаточен. -->
+    <EmbeddedResource Include="..\dist\index.html" LogicalName="yawa-renderer-index.html" />
+    <!-- та же иконка для окна и трея -->
+    <EmbeddedResource Include="icon.ico" LogicalName="yawa-icon.ico" Condition="Exists('icon.ico')" />
+    <!-- Мост TikTok LIVE (tiktok-live-connector). Релиз — один exe, рядом с ним
+         каталога моста нет, поэтому скрипт и манифест встраиваются и при первом
+         подключении разворачиваются в %LOCALAPPDATA%\YawaChatHub\tiktok-bridge. -->
+    <EmbeddedResource Include="..\tiktok-bridge\bridge.js" LogicalName="yawa-tiktok-bridge.js" />
+    <EmbeddedResource Include="..\tiktok-bridge\package.json" LogicalName="yawa-tiktok-package.json" />
+    <!-- ВСТРОЕННЫЙ рантайм: на ПК пользователя ничего ставить не нужно.
+         runtime\YawaChatHub.exe — Node.js (имя повторяет имя хоста, чтобы
+         диспетчер задач группировал процессы в одну ветку),
+         runtime\tiktok-bridge.zip — мост TikTok LIVE с готовым node_modules.
+         Оба файла генерирует scripts/bundle-runtime.mjs (CI вызывает его перед
+         publish); без них (локальная dev-сборка) коннектор, как раньше, ищет
+         системный Node. -->
+    <EmbeddedResource Include="runtime\YawaChatHub.exe" LogicalName="yawa-node.exe" Condition="Exists('runtime\YawaChatHub.exe')" />
+    <EmbeddedResource Include="runtime\tiktok-bridge.zip" LogicalName="yawa-tiktok-bridge.zip" Condition="Exists('runtime\tiktok-bridge.zip')" />
+  </ItemGroup>
+
+  <!-- Понятная ошибка, если рендерер не собран -->
+  <Target Name="RequireRendererDist" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('..\dist\index.html')"
+           Text="dist/index.html не найден — сначала соберите интерфейс: npm install &amp;&amp; npm run build" />
+  </Target>
+
+</Project>

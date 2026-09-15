@@ -1,0 +1,51 @@
+name: ci
+
+# Автосборка: на каждый пуш (кроме main — им занимается release.yml) и pull request
+# проверяет, что собираются и веб-рендерер, и WebView2-хост.
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: build (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Зависимости рендерера
+        run: npm install
+
+      - name: Проверка типов и сборка Vite
+        run: npm run build
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Иконка приложения
+        run: node scripts/make-icon.mjs
+
+      - name: Синхронизация версии в csproj
+        run: node scripts/sync-version.mjs
+
+      - name: Restore WebView2-хоста (с RID win-x64)
+        run: dotnet restore webview2/YawaChatHub.WebView2.csproj -r win-x64
+
+      - name: Publish хоста (проверочная сборка)
+        run: >
+          dotnet publish webview2/YawaChatHub.WebView2.csproj
+          -c Release -r win-x64 --self-contained false
+          -o ci-publish --no-restore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-build-${{ github.sha }}
+          path: ci-publish/
+          retention-days: 7
