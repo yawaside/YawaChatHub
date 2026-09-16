@@ -21,9 +21,9 @@
     <Description>YawaChatHub — чат всех стримов в одном окне</Description>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <!-- версия синхронизируется из корневого VERSION (scripts/sync-version.mjs) -->
-    <Version>1.9.3</Version>
-    <AssemblyVersion>1.9.3.0</AssemblyVersion>
-    <FileVersion>1.9.3.0</FileVersion>
+    <Version>1.9.4</Version>
+    <AssemblyVersion>1.9.4.0</AssemblyVersion>
+    <FileVersion>1.9.4.0</FileVersion>
     <PublishSingleFile>false</PublishSingleFile>
     <!-- иконка exe и ярлыка (генерируется scripts/make-icon.mjs) -->
     <ApplicationIcon Condition="Exists('icon.ico')">icon.ico</ApplicationIcon>
